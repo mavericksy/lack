@@ -17,7 +17,8 @@
 (defparameter *lack-middleware-csrf*
   (lambda (app &key (block-app #'return-400) one-time
             (session-key "_csrf_token")
-            (form-token "_csrf_token"))
+            (form-token "_csrf_token")
+            (received-token-csrf-extractor #'(lambda (req) (cdr (assoc *csrf-middleware-token* (request-body-parameters req) :test #'string=)))))
     (lambda (env)
       (let ((*csrf-session-key* session-key)
             (*csrf-middleware-token* form-token))
@@ -29,7 +30,7 @@
             (unless session
               (error ":lack.session is missing in ENV. Wrap this app up with lack.middleware.session"))
 
-            (if (valid-token-p env)
+            (if (valid-token-p env received-token-csrf-extractor)
                 (progn
                   (when one-time
                     (remhash *csrf-session-key* session))
@@ -49,13 +50,13 @@
           '(:POST :PUT :DELETE :PATCH)
           :test #'eq))
 
-(defun valid-token-p (env)
+(defun valid-token-p (env extractor)
   (let ((req (make-request env))
         (csrf-token (gethash *csrf-session-key*
                              (getf env :lack.session))))
     (and csrf-token
          (let ((received-csrf-token
-                 (cdr (assoc *csrf-middleware-token* (request-body-parameters req) :test #'string=))))
+                 (funcall extractor req)))
            ;; for multipart/form-data
            (when (listp received-csrf-token)
              (setf received-csrf-token (first received-csrf-token)))
